@@ -55,12 +55,15 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-                    script: |
+          script: |
             echo "Actualizando paquetes..."
             sudo dnf update -y
 
-            echo "Instalando Docker y cliente EFS..."
-            sudo dnf install docker amazon-efs-utils -y
+            echo "Instalando Docker..."
+            sudo dnf install docker -y
+
+            echo "Instalando cliente EFS..."
+            sudo dnf install amazon-efs-utils -y || true
 
             echo "Iniciando Docker..."
             sudo systemctl start docker
@@ -86,17 +89,7 @@ jobs:
             sudo docker rm gestion-guias-app || true
 
             echo "Levantando nuevo contenedor usando EFS..."
-            sudo docker run -d \
-              --name gestion-guias-app \
-              -p 8080:8080 \
-              -e AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}" \
-              -e AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
-              -e AWS_SESSION_TOKEN="${{ secrets.AWS_SESSION_TOKEN }}" \
-              -e AWS_REGION="${{ secrets.AWS_REGION }}" \
-              -e S3_BUCKET_NAME="${{ secrets.S3_BUCKET_NAME }}" \
-              -v /mnt/efs/guias:/app/storage/guias \
-              --restart unless-stopped \
-              ${{ secrets.DOCKERHUB_USERNAME }}/gestion-guias:latest
+            sudo docker run -d --name gestion-guias-app -p 8080:8080 -e AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}" -e AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}" -e AWS_SESSION_TOKEN="${{ secrets.AWS_SESSION_TOKEN }}" -e AWS_REGION="${{ secrets.AWS_REGION }}" -e S3_BUCKET_NAME="${{ secrets.S3_BUCKET_NAME }}" -v /mnt/efs/guias:/app/storage/guias --restart unless-stopped ${{ secrets.DOCKERHUB_USERNAME }}/gestion-guias:latest
 
             echo "Verificando montaje EFS..."
             df -h | grep efs || true
