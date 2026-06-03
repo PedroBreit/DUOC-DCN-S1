@@ -19,12 +19,14 @@ import java.util.List;
 public class GuiaService {
 
     private final GuiaRepository guiaRepository;
+    private final S3Service s3Service;
 
     @Value("${app.storage.local-path}")
     private String storagePath;
 
-    public GuiaService(GuiaRepository guiaRepository) {
+    public GuiaService(GuiaRepository guiaRepository, S3Service s3Service) {
         this.guiaRepository = guiaRepository;
+        this.s3Service = s3Service;
     }
 
     public GuiaDespacho crearGuia(CrearGuiaRequest request) {
@@ -121,6 +123,10 @@ public class GuiaService {
         GuiaDespacho guia = buscarPorId(id);
 
         try {
+            if (guia.getS3Key() != null && !guia.getS3Key().isBlank()) {
+                s3Service.eliminarArchivo(guia.getS3Key());
+            }
+
             if (guia.getRutaLocal() != null) {
                 Files.deleteIfExists(Paths.get(guia.getRutaLocal()));
             }
@@ -132,17 +138,25 @@ public class GuiaService {
         }
     }
 
-    public GuiaDespacho simularSubidaS3(Long id) {
+    public GuiaDespacho subirGuiaAS3(Long id) {
         GuiaDespacho guia = buscarPorId(id);
+
+        Path archivoPath = Paths.get(guia.getRutaLocal());
+
+        if (!Files.exists(archivoPath)) {
+            throw new RuntimeException("El archivo local de la guia no existe");
+        }
 
         String s3Key = guia.getFecha()
                 + "/"
-                + guia.getTransportista()
+                + guia.getTransportista().replace(" ", "_")
                 + "/"
                 + guia.getNombreArchivo();
 
+        s3Service.subirArchivo(archivoPath, s3Key);
+
         guia.setS3Key(s3Key);
-        guia.setEstado("SIMULADA_S3");
+        guia.setEstado("SUBIDA_S3");
         guia.setFechaActualizacion(LocalDateTime.now());
 
         return guiaRepository.save(guia);

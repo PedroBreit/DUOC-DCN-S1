@@ -77,6 +77,8 @@ jobs:
             sudo docker run -d \
               --name gestion-guias-app \
               -p 8080:8080 \
+              -e AWS_REGION=us-east-1 \
+              -e S3_BUCKET_NAME=gestion-guias-s3 \
               --restart unless-stopped \
               ${{ secrets.DOCKERHUB_USERNAME }}/gestion-guias:latest
 

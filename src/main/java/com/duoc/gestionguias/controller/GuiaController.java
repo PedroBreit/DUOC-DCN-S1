@@ -75,7 +75,7 @@ public class GuiaController {
     }
 
     @PostMapping("/{id}/subir-s3")
-    public ResponseEntity<GuiaDespacho> simularSubidaS3(@PathVariable Long id) {
-        return ResponseEntity.ok(guiaService.simularSubidaS3(id));
+    public ResponseEntity<GuiaDespacho> subirGuiaAS3(@PathVariable Long id) {
+        return ResponseEntity.ok(guiaService.subirGuiaAS3(id));
     }
 }
