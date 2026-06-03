@@ -1,4 +1,4 @@
-name: Build and Push Docker Image
+name: Build, Push and Deploy
 
 on:
   push:
@@ -42,3 +42,43 @@ jobs:
           context: .
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/gestion-guias:latest
+
+  deploy-ec2:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Deploy to EC2 using SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            echo "Actualizando paquetes..."
+            sudo dnf update -y
+
+            echo "Instalando Docker si no existe..."
+            sudo dnf install docker -y
+
+            echo "Iniciando Docker..."
+            sudo systemctl start docker
+            sudo systemctl enable docker
+
+            echo "Descargando imagen desde Docker Hub..."
+            sudo docker pull ${{ secrets.DOCKERHUB_USERNAME }}/gestion-guias:latest
+
+            echo "Deteniendo contenedor anterior si existe..."
+            sudo docker stop gestion-guias-app || true
+            sudo docker rm gestion-guias-app || true
+
+            echo "Levantando nuevo contenedor..."
+            sudo docker run -d \
+              --name gestion-guias-app \
+              -p 8080:8080 \
+              --restart unless-stopped \
+              ${{ secrets.DOCKERHUB_USERNAME }}/gestion-guias:latest
+
+            echo "Contenedores activos:"
+            sudo docker ps
