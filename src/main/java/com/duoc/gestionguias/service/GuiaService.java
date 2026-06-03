@@ -7,6 +7,7 @@ import com.duoc.gestionguias.repository.GuiaRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -100,6 +101,11 @@ public class GuiaService {
                     StandardOpenOption.TRUNCATE_EXISTING
             );
 
+            if (guia.getS3Key() != null && !guia.getS3Key().isBlank()) {
+                s3Service.subirArchivo(Paths.get(guia.getRutaLocal()), guia.getS3Key());
+                guia.setEstado("ACTUALIZADA_S3");
+            }
+
             return guiaRepository.save(guia);
 
         } catch (IOException e) {
@@ -109,6 +115,11 @@ public class GuiaService {
 
     public Resource descargarGuia(Long id) {
         GuiaDespacho guia = buscarPorId(id);
+
+        if (guia.getS3Key() != null && !guia.getS3Key().isBlank()) {
+            byte[] archivoDesdeS3 = s3Service.descargarArchivo(guia.getS3Key());
+            return new ByteArrayResource(archivoDesdeS3);
+        }
 
         Path path = Paths.get(guia.getRutaLocal());
 
