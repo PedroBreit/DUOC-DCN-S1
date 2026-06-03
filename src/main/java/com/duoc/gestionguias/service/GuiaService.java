@@ -16,12 +16,18 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
+/**
+ * Servicio principal que contiene la logica de negocio
+ * para crear, actualizar, descargar, eliminar y subir guias.
+ */
 @Service
 public class GuiaService {
 
     private final GuiaRepository guiaRepository;
     private final S3Service s3Service;
 
+    // Ruta temporal donde se generan los archivos de las guias.
+    // En EC2 esta ruta queda conectada a EFS mediante Docker.
     @Value("${app.storage.local-path}")
     private String storagePath;
 
@@ -30,6 +36,7 @@ public class GuiaService {
         this.s3Service = s3Service;
     }
 
+    // Crea la guia en base de datos y genera su archivo temporal.
     public GuiaDespacho crearGuia(CrearGuiaRequest request) {
         try {
             Files.createDirectories(Paths.get(storagePath));
@@ -69,19 +76,24 @@ public class GuiaService {
         }
     }
 
+    // Retorna todas las guias registradas.
     public List<GuiaDespacho> listarGuias() {
         return guiaRepository.findAll();
     }
 
+    // Busca una guia por ID o lanza error si no existe.
     public GuiaDespacho buscarPorId(Long id) {
         return guiaRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Guia no encontrada con ID: " + id));
     }
 
+    // Busca guias usando los filtros de transportista y fecha.
     public List<GuiaDespacho> buscarPorTransportistaYFecha(String transportista, LocalDate fecha) {
         return guiaRepository.findByTransportistaAndFecha(transportista, fecha);
     }
 
+    // Actualiza la guia y regenera su archivo.
+    // Si ya estaba en S3, vuelve a subir el archivo actualizado.
     public GuiaDespacho actualizarGuia(Long id, ActualizarGuiaRequest request) {
         try {
             GuiaDespacho guia = buscarPorId(id);
@@ -113,6 +125,8 @@ public class GuiaService {
         }
     }
 
+    // Descarga la guia desde S3 si ya fue subida.
+    // Si no tiene s3Key, la descarga desde el archivo temporal.
     public Resource descargarGuia(Long id) {
         GuiaDespacho guia = buscarPorId(id);
 
@@ -130,6 +144,7 @@ public class GuiaService {
         return new FileSystemResource(path);
     }
 
+    // Elimina la guia, su archivo temporal y el archivo en S3 si existe.
     public void eliminarGuia(Long id) {
         GuiaDespacho guia = buscarPorId(id);
 
@@ -149,6 +164,7 @@ public class GuiaService {
         }
     }
 
+    // Sube el archivo de la guia a S3 organizado por fecha y transportista.
     public GuiaDespacho subirGuiaAS3(Long id) {
         GuiaDespacho guia = buscarPorId(id);
 
@@ -173,6 +189,7 @@ public class GuiaService {
         return guiaRepository.save(guia);
     }
 
+    // Genera el contenido del archivo de texto de la guia.
     private String generarContenidoGuia(GuiaDespacho guia) {
         return """
                 GUIA DE DESPACHO

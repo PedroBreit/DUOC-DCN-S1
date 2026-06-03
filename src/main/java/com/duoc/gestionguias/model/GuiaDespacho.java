@@ -6,6 +6,9 @@ import lombok.*;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
+/**
+ * Entidad que representa una guia de despacho en la base de datos.
+ */
 @Entity
 @Table(name = "guias_despacho")
 @Getter
@@ -33,8 +36,10 @@ public class GuiaDespacho {
 
     private String nombreArchivo;
 
+    // Ruta temporal del archivo generado. En EC2 esta ruta apunta a EFS.
     private String rutaLocal;
 
+    // Ruta del archivo dentro del bucket S3.
     private String s3Key;
 
     private LocalDateTime fechaCreacion;

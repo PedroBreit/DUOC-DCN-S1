@@ -7,6 +7,9 @@ import lombok.Setter;
 
 import java.time.LocalDate;
 
+/**
+ * DTO usado para recibir los datos al crear una guia.
+ */
 @Getter
 @Setter
 public class CrearGuiaRequest {
