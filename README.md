@@ -37,7 +37,7 @@ Ejemplo:
 
 ```text
 EC2_USER=ec2-user
-EC2_HOST=54.156.56.18
+EC2_HOST=54.156.56.18 
 ```
 
 El secret `EC2_SSH_KEY` debe contener todo el contenido del archivo `.pem`, incluyendo:
