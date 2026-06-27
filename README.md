@@ -16,7 +16,7 @@ La solución utiliza la siguiente arquitectura:
 Postman / Cliente
         |
         v
-AWS API Gateway
+AWS API Gateway 
         |
         v
 Backend Spring Boot en EC2 / Docker
