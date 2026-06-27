@@ -1,4 +1,4 @@
-# Gestión de Guías de Despacho - Actividad S6
+# Gestión de Guías de Despacho - Actividad S6  
 
 Microservicio desarrollado con **Spring Boot**, **Spring Security**, **OAuth 2.0**, **Azure AD B2C**, **AWS API Gateway**, **Docker**, **GitHub Actions**, **Amazon EC2** y **Amazon S3**.
 
