@@ -23,14 +23,31 @@ public class GuiaQueueService {
     }
 
     /*
-     * Busca una guia existente en la base de datos y envia sus datos
-     * a la cola principal de RabbitMQ.
+     * Envia una guia existente a la cola principal de RabbitMQ.
      */
     public void enviarGuiaACola(Long id) {
-        GuiaDespacho guia = guiaRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("No existe la guia con ID: " + id));
+        GuiaDespacho guia = buscarGuia(id);
+        GuiaDespachoMessage mensaje = crearMensajeDesdeGuia(guia, "API_ENVIAR_COLA");
+        guiaQueueProducer.enviarGuiaPendiente(mensaje);
+    }
 
-        GuiaDespachoMessage mensaje = new GuiaDespachoMessage(
+    /*
+     * Envia una guia existente directamente a la cola de errores.
+     * Este metodo permite evidenciar la segunda cola solicitada en S8.
+     */
+    public void enviarGuiaAColaError(Long id) {
+        GuiaDespacho guia = buscarGuia(id);
+        GuiaDespachoMessage mensaje = crearMensajeDesdeGuia(guia, "API_SIMULAR_ERROR");
+        guiaQueueProducer.enviarGuiaConError(mensaje, "Error simulado para evidencia de cola de errores");
+    }
+
+    private GuiaDespacho buscarGuia(Long id) {
+        return guiaRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("No existe la guia con ID: " + id));
+    }
+
+    private GuiaDespachoMessage crearMensajeDesdeGuia(GuiaDespacho guia, String origen) {
+        return new GuiaDespachoMessage(
                 guia.getId(),
                 guia.getTransportista(),
                 guia.getFecha(),
@@ -39,9 +56,7 @@ public class GuiaQueueService {
                 guia.getDescripcionPedido(),
                 guia.getEstado(),
                 LocalDateTime.now(),
-                "API_ENVIAR_COLA"
+                origen
         );
-
-        guiaQueueProducer.enviarGuiaPendiente(mensaje);
     }
 }

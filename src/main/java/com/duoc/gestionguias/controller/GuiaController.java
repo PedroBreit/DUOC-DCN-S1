@@ -112,6 +112,16 @@ public class GuiaController {
     }
 
     /*
+    * Envia una guia existente a la cola de errores de RabbitMQ.
+    * Este endpoint se usa para evidenciar el manejo de errores solicitado en S8.
+    */
+    @PostMapping("/{id}/enviar-cola-error")
+    public ResponseEntity<String> enviarGuiaAColaError(@PathVariable Long id) {
+        guiaQueueService.enviarGuiaAColaError(id);
+        return ResponseEntity.ok("Guia enviada correctamente a la cola de errores de RabbitMQ");
+    }
+    
+    /*
      * Consume un mensaje desde la cola principal de RabbitMQ
      * y lo guarda en la tabla GUIAS_COLA_PROCESADAS.
      */
