@@ -8,13 +8,13 @@ import org.springframework.stereotype.Service;
 
 import com.duoc.gestionguias.dto.mensaje.GuiaDespachoMessage;
 import com.duoc.gestionguias.model.GuiaColaProcesada;
-import com.duoc.gestionguias.repository.GuiaColaProcesadaRepository;
+import com.duoc.gestionguias.repository.oracle.GuiaColaProcesadaOracleRepository;
 
 @Service
 public class GuiaQueueConsumerService {
 
     private final RabbitTemplate rabbitTemplate;
-    private final GuiaColaProcesadaRepository guiaColaProcesadaRepository;
+    private final GuiaColaProcesadaOracleRepository guiaColaProcesadaOracleRepository;
     private final GuiaQueueProducer guiaQueueProducer;
 
     @Value("${app.rabbitmq.queue.pendientes}")
@@ -22,17 +22,17 @@ public class GuiaQueueConsumerService {
 
     public GuiaQueueConsumerService(
             RabbitTemplate rabbitTemplate,
-            GuiaColaProcesadaRepository guiaColaProcesadaRepository,
+            GuiaColaProcesadaOracleRepository guiaColaProcesadaOracleRepository,
             GuiaQueueProducer guiaQueueProducer
     ) {
         this.rabbitTemplate = rabbitTemplate;
-        this.guiaColaProcesadaRepository = guiaColaProcesadaRepository;
+        this.guiaColaProcesadaOracleRepository = guiaColaProcesadaOracleRepository;
         this.guiaQueueProducer = guiaQueueProducer;
     }
 
     /*
      * Consume un mensaje desde la cola principal y lo guarda
-     * en la tabla GUIAS_COLA_PROCESADAS.
+     * en Oracle Cloud en la tabla GUIAS_COLA_PROCESADAS.
      */
     public GuiaColaProcesada procesarUnMensajePendiente() {
         Object mensajeRecibido = rabbitTemplate.receiveAndConvert(pendientesQueueName);
@@ -44,7 +44,8 @@ public class GuiaQueueConsumerService {
         try {
             GuiaDespachoMessage mensaje = (GuiaDespachoMessage) mensajeRecibido;
             GuiaColaProcesada registro = convertirARegistroProcesado(mensaje);
-            return guiaColaProcesadaRepository.save(registro);
+
+            return guiaColaProcesadaOracleRepository.save(registro);
 
         } catch (Exception ex) {
             if (mensajeRecibido instanceof GuiaDespachoMessage mensajeConError) {
