@@ -38,3 +38,12 @@ storage/
 
 ### Logs ###
 *.log
+
+# Oracle Cloud Wallet
+src/main/resources/wallet/
+*.sso
+*.p12
+*.jks
+tnsnames.ora
+sqlnet.ora
+ojdbc.properties
