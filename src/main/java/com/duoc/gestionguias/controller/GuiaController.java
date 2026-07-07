@@ -2,8 +2,10 @@ package com.duoc.gestionguias.controller;
 
 import com.duoc.gestionguias.dto.ActualizarGuiaRequest;
 import com.duoc.gestionguias.dto.CrearGuiaRequest;
+import com.duoc.gestionguias.model.GuiaColaProcesada;
 import com.duoc.gestionguias.model.GuiaDespacho;
 import com.duoc.gestionguias.service.GuiaService;
+import com.duoc.gestionguias.service.messaging.GuiaQueueConsumerService;
 import com.duoc.gestionguias.service.messaging.GuiaQueueService;
 import jakarta.validation.Valid;
 import org.springframework.core.io.Resource;
@@ -23,13 +25,16 @@ public class GuiaController {
 
     private final GuiaService guiaService;
     private final GuiaQueueService guiaQueueService;
+    private final GuiaQueueConsumerService guiaQueueConsumerService;
 
     public GuiaController(
             GuiaService guiaService,
-            GuiaQueueService guiaQueueService
+            GuiaQueueService guiaQueueService,
+            GuiaQueueConsumerService guiaQueueConsumerService
     ) {
         this.guiaService = guiaService;
         this.guiaQueueService = guiaQueueService;
+        this.guiaQueueConsumerService = guiaQueueConsumerService;
     }
 
     // Crea una guia y genera su archivo temporal.
@@ -104,5 +109,14 @@ public class GuiaController {
     public ResponseEntity<String> enviarGuiaACola(@PathVariable Long id) {
         guiaQueueService.enviarGuiaACola(id);
         return ResponseEntity.ok("Guia enviada correctamente a la cola principal de RabbitMQ");
+    }
+
+    /*
+     * Consume un mensaje desde la cola principal de RabbitMQ
+     * y lo guarda en la tabla GUIAS_COLA_PROCESADAS.
+     */
+    @PostMapping("/colas/procesar")
+    public ResponseEntity<GuiaColaProcesada> procesarMensajeCola() {
+        return ResponseEntity.ok(guiaQueueConsumerService.procesarUnMensajePendiente());
     }
 }

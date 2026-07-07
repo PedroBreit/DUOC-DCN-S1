@@ -2,6 +2,7 @@ package com.duoc.gestionguias.config;
 
 import java.util.Map;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.amqp.core.AmqpAdmin;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
@@ -107,15 +108,16 @@ public class RabbitMQConfig {
 
     /*
      * Convierte objetos Java a JSON para enviarlos como mensajes RabbitMQ.
+     * Usa el ObjectMapper de Spring para soportar LocalDate y LocalDateTime.
      */
     @Bean
-    public Jackson2JsonMessageConverter jackson2JsonMessageConverter() {
-        return new Jackson2JsonMessageConverter();
+    public Jackson2JsonMessageConverter jackson2JsonMessageConverter(ObjectMapper objectMapper) {
+        return new Jackson2JsonMessageConverter(objectMapper);
     }
 
     /*
      * RabbitTemplate configurado para enviar objetos Java como JSON.
-     * Este componente sera usado por los productores de mensajes.
+     * Este componente sera usado por los productores y consumidores manuales de mensajes.
      */
     @Bean
     public RabbitTemplate rabbitTemplate(
