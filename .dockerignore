@@ -7,3 +7,6 @@ storage
 .vscode
 .idea
 *.iml
+
+# Oracle Cloud Wallet
+src/main/resources/wallet
