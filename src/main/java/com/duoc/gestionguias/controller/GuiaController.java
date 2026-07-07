@@ -4,6 +4,7 @@ import com.duoc.gestionguias.dto.ActualizarGuiaRequest;
 import com.duoc.gestionguias.dto.CrearGuiaRequest;
 import com.duoc.gestionguias.model.GuiaDespacho;
 import com.duoc.gestionguias.service.GuiaService;
+import com.duoc.gestionguias.service.messaging.GuiaQueueService;
 import jakarta.validation.Valid;
 import org.springframework.core.io.Resource;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -21,9 +22,14 @@ import java.util.List;
 public class GuiaController {
 
     private final GuiaService guiaService;
+    private final GuiaQueueService guiaQueueService;
 
-    public GuiaController(GuiaService guiaService) {
+    public GuiaController(
+            GuiaService guiaService,
+            GuiaQueueService guiaQueueService
+    ) {
         this.guiaService = guiaService;
+        this.guiaQueueService = guiaQueueService;
     }
 
     // Crea una guia y genera su archivo temporal.
@@ -88,5 +94,15 @@ public class GuiaController {
     @PostMapping("/{id}/subir-s3")
     public ResponseEntity<GuiaDespacho> subirGuiaAS3(@PathVariable Long id) {
         return ResponseEntity.ok(guiaService.subirGuiaAS3(id));
+    }
+
+    /*
+     * Envia una guia existente a la cola principal de RabbitMQ.
+     * Este endpoint permite evidenciar el comportamiento asincrono solicitado en S8.
+     */
+    @PostMapping("/{id}/enviar-cola")
+    public ResponseEntity<String> enviarGuiaACola(@PathVariable Long id) {
+        guiaQueueService.enviarGuiaACola(id);
+        return ResponseEntity.ok("Guia enviada correctamente a la cola principal de RabbitMQ");
     }
 }
