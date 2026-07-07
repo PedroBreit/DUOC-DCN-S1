@@ -79,6 +79,28 @@
             <artifactId>spring-security-oauth2-jose</artifactId>
         </dependency>
 
+        <!-- Permite trabajar con RabbitMQ para mensajeria asincrona -->
+        <!-- Incluye soporte para productores, consumidores, colas, exchanges y RabbitTemplate -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+
+        <!-- Permite exponer endpoints de monitoreo y salud de la aplicacion -->
+        <!-- Sera utilizado para evidenciar el estado del backend y componentes como RabbitMQ -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- Driver JDBC de Oracle para conectarse a Oracle Cloud Database -->
+        <!-- Se utilizara para guardar los mensajes procesados desde RabbitMQ en una tabla nueva -->
+        <dependency>
+            <groupId>com.oracle.database.jdbc</groupId>
+            <artifactId>ojdbc11</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
         <!-- SDK de AWS para trabajar con Amazon S3 -->
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
