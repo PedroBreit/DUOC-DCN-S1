@@ -66,6 +66,10 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            echo "===================================================="
+            echo "INICIO DESPLIEGUE S8 - CLOUD NATIVE"
+            echo "===================================================="
+
             echo "Actualizando paquetes..."
             sudo dnf update -y
 
@@ -78,6 +82,9 @@ jobs:
             echo "Iniciando Docker..."
             sudo systemctl start docker
             sudo systemctl enable docker
+
+            echo "Creando red Docker para la aplicacion..."
+            sudo docker network create guias-net || true
 
             echo "Creando punto de montaje EFS..."
             sudo mkdir -p /mnt/efs
@@ -93,18 +100,115 @@ jobs:
             echo "Asignando permisos al directorio de guias..."
             sudo chmod -R 777 /mnt/efs/guias
 
-            echo "Descargando imagen desde Docker Hub..."
+            echo "Verificando wallet Oracle en EC2..."
+            ls -la /home/${{ secrets.EC2_USER }}/oracle/wallet || true
+
+            echo "Descargando imagen RabbitMQ..."
+            sudo docker pull rabbitmq:3-management
+
+            echo "Deteniendo contenedor RabbitMQ anterior si existe..."
+            sudo docker stop rabbitmq-guias || true
+            sudo docker rm rabbitmq-guias || true
+
+            echo "Levantando RabbitMQ en Docker..."
+            sudo docker run -d \
+              --name rabbitmq-guias \
+              --network guias-net \
+              -p 5672:5672 \
+              -p 15672:15672 \
+              -e RABBITMQ_DEFAULT_USER=guias_user \
+              -e RABBITMQ_DEFAULT_PASS=guias_pass \
+              --restart unless-stopped \
+              rabbitmq:3-management
+
+            echo "Esperando inicio de RabbitMQ..."
+            sleep 20
+
+            echo "Descargando imagen de la aplicacion desde Docker Hub..."
             sudo docker pull ${{ secrets.DOCKERHUB_USERNAME }}/gestion-guias:latest
 
-            echo "Deteniendo contenedor anterior si existe..."
+            echo "Deteniendo contenedor anterior de la aplicacion si existe..."
             sudo docker stop gestion-guias-app || true
             sudo docker rm gestion-guias-app || true
 
-            echo "Levantando nuevo contenedor usando EFS..."
-            sudo docker run -d --name gestion-guias-app -p 8080:8080 -e AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}" -e AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}" -e AWS_SESSION_TOKEN="${{ secrets.AWS_SESSION_TOKEN }}" -e AWS_REGION="${{ secrets.AWS_REGION }}" -e S3_BUCKET_NAME="${{ secrets.S3_BUCKET_NAME }}" -v /mnt/efs/guias:/app/storage/guias --restart unless-stopped ${{ secrets.DOCKERHUB_USERNAME }}/gestion-guias:latest
+            echo "Levantando nuevo contenedor Spring Boot con RabbitMQ, EFS, S3 y Oracle..."
+            sudo docker run -d \
+              --name gestion-guias-app \
+              --network guias-net \
+              -p 8080:8080 \
+              -e AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}" \
+              -e AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
+              -e AWS_SESSION_TOKEN="${{ secrets.AWS_SESSION_TOKEN }}" \
+              -e AWS_REGION="${{ secrets.AWS_REGION }}" \
+              -e S3_BUCKET_NAME="${{ secrets.S3_BUCKET_NAME }}" \
+              -e RABBITMQ_HOST="rabbitmq-guias" \
+              -e RABBITMQ_PORT="5672" \
+              -e RABBITMQ_USERNAME="guias_user" \
+              -e RABBITMQ_PASSWORD="guias_pass" \
+              -e ORACLE_WALLET_PATH="/app/wallet" \
+              -e ORACLE_TNS_NAME="${{ secrets.ORACLE_TNS_NAME }}" \
+              -e ORACLE_DB_USERNAME="${{ secrets.ORACLE_DB_USERNAME }}" \
+              -e ORACLE_DB_PASSWORD="${{ secrets.ORACLE_DB_PASSWORD }}" \
+              -v /mnt/efs/guias:/app/storage/guias \
+              -v /home/${{ secrets.EC2_USER }}/oracle/wallet:/app/wallet:ro \
+              --restart unless-stopped \
+              ${{ secrets.DOCKERHUB_USERNAME }}/gestion-guias:latest
 
-            echo "Verificando montaje EFS..."
+            echo "Esperando inicio de Spring Boot..."
+            sleep 35
+
+            echo "===================================================="
+            echo "EVIDENCIA 1 - CONTENEDORES ACTIVOS"
+            echo "===================================================="
+            sudo docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
+
+            echo "===================================================="
+            echo "EVIDENCIA 2 - RED DOCKER guias-net"
+            echo "===================================================="
+            sudo docker network inspect guias-net --format '{{json .Containers}}' || true
+
+            echo "===================================================="
+            echo "EVIDENCIA 3 - RABBITMQ EN DOCKER"
+            echo "===================================================="
+            sudo docker exec rabbitmq-guias rabbitmqctl status | grep -E "RabbitMQ version|Node name|Uptime|Listeners" || true
+
+            echo "===================================================="
+            echo "EVIDENCIA 4 - COLAS RABBITMQ"
+            echo "===================================================="
+            sudo docker exec rabbitmq-guias rabbitmqctl list_queues name messages_ready messages_unacknowledged consumers || true
+
+            echo "===================================================="
+            echo "EVIDENCIA 5 - EXCHANGES RABBITMQ"
+            echo "===================================================="
+            sudo docker exec rabbitmq-guias rabbitmqctl list_exchanges name type durable | grep guias || true
+
+            echo "===================================================="
+            echo "EVIDENCIA 6 - HEALTH CHECK SPRING BOOT"
+            echo "===================================================="
+            curl -s http://localhost:8080/actuator/health || true
+            echo ""
+
+            echo "===================================================="
+            echo "EVIDENCIA 7 - VOLUMEN EFS MONTADO"
+            echo "===================================================="
             df -h | grep efs || true
+            ls -la /mnt/efs/guias || true
 
-            echo "Contenedores activos:"
-            sudo docker ps
+            echo "===================================================="
+            echo "EVIDENCIA 8 - WALLET ORACLE MONTADO EN CONTENEDOR"
+            echo "===================================================="
+            sudo docker exec gestion-guias-app sh -c "ls -la /app/wallet | sed 's/cwallet.sso/cwallet.sso [PRESENTE]/g' | sed 's/ewallet.p12/ewallet.p12 [PRESENTE]/g'" || true
+
+            echo "===================================================="
+            echo "EVIDENCIA 9 - VARIABLES IMPORTANTES SIN SECRETOS"
+            echo "===================================================="
+            sudo docker exec gestion-guias-app sh -c 'echo RABBITMQ_HOST=$RABBITMQ_HOST && echo RABBITMQ_PORT=$RABBITMQ_PORT && echo ORACLE_WALLET_PATH=$ORACLE_WALLET_PATH && echo ORACLE_TNS_NAME=$ORACLE_TNS_NAME && echo AWS_REGION=$AWS_REGION && echo S3_BUCKET_NAME=$S3_BUCKET_NAME' || true
+
+            echo "===================================================="
+            echo "EVIDENCIA 10 - LOGS RECIENTES SPRING BOOT"
+            echo "===================================================="
+            sudo docker logs --tail 100 gestion-guias-app || true
+
+            echo "===================================================="
+            echo "FIN DESPLIEGUE S8"
+            echo "===================================================="
