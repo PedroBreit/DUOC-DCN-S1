@@ -1,695 +1,457 @@
-# Gestión de Guías de Despacho - Actividad S6  
+# Sistema de Gestion de Guias - Semana 8
 
-Microservicio desarrollado con **Spring Boot**, **Spring Security**, **OAuth 2.0**, **Azure AD B2C**, **AWS API Gateway**, **Docker**, **GitHub Actions**, **Amazon EC2** y **Amazon S3**.
+Proyecto desarrollado para la asignatura **Desarrollo Cloud Native (CDY2204)**.
 
-La aplicación permite gestionar guías de despacho para una empresa transportista. El sistema permite crear, consultar, actualizar, buscar, eliminar, generar, subir a S3 y descargar guías de despacho.
+## Actividad
 
-En esta versión se incorporó seguridad Cloud Native mediante **Azure AD B2C** como proveedor de identidad, **JWT Authorizer en AWS API Gateway** y validación de roles mediante **Spring Security** en el backend.
+**Exp 3 - Semana 8:** Desarrollando un sistema asincrono con la utilizacion de colas.
 
----
+Esta version extiende el sistema de gestion de guias de despacho incorporando mensajeria asincrona mediante **RabbitMQ**, utilizando una cola principal para procesamiento normal y una cola de errores para registrar mensajes con problemas.
 
-## 1. Arquitectura general
+## Repositorio
 
-La solución utiliza la siguiente arquitectura:
+https://github.com/PedroBreit/DUOC-DCN-S1
 
-```text
-Postman / Cliente
-        |
-        v
-AWS API Gateway 
-        |
-        v
-Backend Spring Boot en EC2 / Docker
-        |
-        v
-Amazon S3
+## Objetivo de la implementacion S8
 
-Azure AD B2C emite los JWT
-API Gateway valida el JWT
-Spring Security valida los roles admin / descarga
-```
+Implementar un flujo asincrono para el procesamiento de guias de despacho, utilizando RabbitMQ como broker de mensajeria, Spring Boot como backend, AWS API Gateway como punto publico de acceso, Docker para despliegue en EC2 y Oracle Cloud Autonomous Database para almacenar los mensajes procesados.
 
-Componentes principales:
-
-| Componente      | Descripción                                        |
-| --------------- | -------------------------------------------------- |
-| Spring Boot     | Backend principal del sistema                      |
-| Spring Security | Validación de autenticación y autorización por rol |
-| Azure AD B2C    | IDaaS encargado de emitir tokens JWT               |
-| AWS API Gateway | Punto público de entrada para todos los endpoints  |
-| Amazon EC2      | Servidor donde se ejecuta el contenedor Docker     |
-| Docker          | Empaquetado y ejecución de la aplicación           |
-| GitHub Actions  | Build y despliegue automático                      |
-| Amazon S3       | Almacenamiento de guías generadas                  |
-| Postman         | Pruebas de OAuth 2.0, JWT y endpoints              |
-
----
-
-## 2. URL pública de la API
-
-Todas las pruebas deben realizarse mediante la URL pública de **AWS API Gateway**:
+## Arquitectura implementada
 
 ```text
-https://u42wjueljf.execute-api.us-east-1.amazonaws.com/s6
+Cliente / Postman
+      |
+      v
+AWS API Gateway - Stage s8
+      |
+      v
+EC2 - Docker
+      |
+      +--> Contenedor Spring Boot: gestion-guias-app
+      |
+      +--> Contenedor RabbitMQ: rabbitmq-guias
+                |
+                +--> guias.pendientes.queue
+                |
+                +--> guias.errores.queue
+
+Spring Boot
+      |
+      +--> H2 local para datos base de guias
+      |
+      +--> Oracle Cloud Autonomous DB para mensajes procesados
+      |
+      +--> Amazon S3 / EFS para archivos de guias
+      |
+      +--> Azure AD B2C para autenticacion JWT
 ```
 
-Ejemplo:
+## Tecnologias utilizadas
+
+- Java 17
+- Spring Boot 3.5.14
+- Spring Web
+- Spring Data JPA
+- Spring Security
+- OAuth2 Resource Server
+- RabbitMQ
+- Spring AMQP
+- Spring Boot Actuator
+- Oracle Cloud Autonomous Database
+- Oracle JDBC
+- H2 Database
+- AWS EC2
+- AWS API Gateway
+- Amazon S3
+- Amazon EFS
+- Docker
+- GitHub Actions
+- Azure AD B2C
+- Postman
+
+## Componentes RabbitMQ
+
+La solucion utiliza un exchange directo y dos colas durables.
+
+### Exchange
+
+```text
+guias.exchange
+```
+
+Tipo:
+
+```text
+direct
+```
+
+### Cola principal
+
+```text
+guias.pendientes.queue
+```
+
+Uso:
+
+```text
+Recibe las guias enviadas para procesamiento asincrono.
+```
+
+### Cola de errores
+
+```text
+guias.errores.queue
+```
+
+Uso:
+
+```text
+Recibe mensajes que presentan errores o que se envian como evidencia del manejo de errores.
+```
+
+### Routing keys
+
+```text
+guias.pendientes
+guias.errores
+```
+
+## Flujo asincrono implementado
+
+### 1. Crear guia
+
+Se crea una guia de despacho mediante el endpoint tradicional del sistema.
 
 ```http
-GET https://u42wjueljf.execute-api.us-east-1.amazonaws.com/s6/api/guias
+POST /api/guias
 ```
 
-> Importante: Para la actividad S6, las pruebas no deben realizarse contra `localhost` ni directamente contra la IP pública de EC2. El consumo debe realizarse mediante API Gateway.
+### 2. Enviar guia a la cola principal
 
----
-
-## 3. Seguridad implementada
-
-La seguridad se implementó en dos niveles:
-
-### 3.1 Seguridad en AWS API Gateway
-
-AWS API Gateway utiliza un **JWT Authorizer** para validar que cada solicitud incluya un token JWT válido emitido por Azure AD B2C.
-
-Configuración principal:
-
-```text
-Identity source: $request.header.Authorization
-Issuer: https://guiasdespachopedro2026.b2clogin.com/tfp/fa27e159-24ef-467f-bb9d-8810394076da/b2c_1_guias_signin/v2.0
-Audience: 8701953c-c686-499e-81b0-08114c8cabe2
-```
-
-Si una solicitud no contiene token o contiene un token inválido, API Gateway responde:
-
-```text
-401 Unauthorized
-```
-
----
-
-### 3.2 Seguridad en Spring Security
-
-El backend Spring Boot valida el token JWT y aplica reglas de autorización según el claim personalizado:
-
-```text
-extension_guiaRole
-```
-
-Roles utilizados:
-
-| Rol      | Permisos                                                                                   |
-| -------- | ------------------------------------------------------------------------------------------ |
-| admin    | Puede crear, listar, consultar, buscar, actualizar, eliminar, subir a S3 y descargar guías |
-| descarga | Solo puede descargar guías                                                                 |
-
-Reglas principales:
-
-```text
-/api/guias/*/descargar    -> admin o descarga
-/api/guias/**             -> solo admin
-```
-
-Si el token es válido, pero el usuario no tiene permisos para el endpoint solicitado, el backend responde:
-
-```text
-403 Forbidden
-```
-
----
-
-## 4. Azure AD B2C
-
-Se configuró Azure AD B2C como servicio IDaaS para autenticación y emisión de tokens JWT.
-
-### 4.1 Tenant
-
-```text
-guiasdespachopedro2026.onmicrosoft.com
-```
-
-### 4.2 Aplicación registrada
-
-```text
-guias-despacho-s6
-```
-
-Application Client ID:
-
-```text
-8701953c-c686-499e-81b0-08114c8cabe2
-```
-
-### 4.3 User Flow
-
-```text
-B2C_1_guias_signin
-```
-
-### 4.4 Redirect URI
-
-Se utilizó la siguiente URL para ejecutar el flujo de usuario e inspeccionar tokens:
-
-```text
-https://jwt.ms
-```
-
-### 4.5 Claim personalizado
-
-Se creó el atributo personalizado:
-
-```text
-guiaRole
-```
-
-En el JWT se emite como:
-
-```text
-extension_guiaRole
-```
-
-Valores utilizados:
-
-```text
-admin
-descarga
-```
-
-### 4.6 API expuesta y scope
-
-En la aplicación `guias-despacho-s6` se configuró **Expose an API** y se creó el scope:
-
-```text
-guias_api
-```
-
-Scope completo:
-
-```text
-https://guiasdespachopedro2026.onmicrosoft.com/8701953c-c686-499e-81b0-08114c8cabe2/guias_api
-```
-
-Para OAuth 2.0 Client Credentials se utilizó:
-
-```text
-https://guiasdespachopedro2026.onmicrosoft.com/8701953c-c686-499e-81b0-08114c8cabe2/.default
-```
-
-### 4.7 Client Secret
-
-Se creó un **Client Secret** en Azure para obtener tokens mediante OAuth 2.0 Client Credentials desde Postman.
-
-> Por seguridad, el valor del secreto no debe subirse al repositorio ni mostrarse públicamente.
-
----
-
-## 5. Configuración Spring Boot
-
-### 5.1 Dependencias principales
-
-El proyecto utiliza dependencias de Spring Security y OAuth2 Resource Server para validar JWT.
-
-Dependencias relevantes:
-
-```xml
-<dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-security</artifactId>
-</dependency>
-
-<dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
-</dependency>
-
-<dependency>
-    <groupId>org.springframework.security</groupId>
-    <artifactId>spring-security-oauth2-jose</artifactId>
-</dependency>
-```
-
----
-
-### 5.2 Configuración JWT
-
-En `src/main/resources/application.properties` se configuró la URL de claves públicas de Azure AD B2C:
-
-```properties
-spring.security.oauth2.resourceserver.jwt.jwk-set-uri=https://guiasdespachopedro2026.b2clogin.com/tfp/fa27e159-24ef-467f-bb9d-8810394076da/b2c_1_guias_signin/discovery/v2.0/keys
-app.security.claim-role=extension_guiaRole
-```
-
----
-
-## 6. Variables de entorno y GitHub Secrets
-
-El proyecto utiliza variables configuradas como **GitHub Secrets** para permitir el build, despliegue y conexión con AWS.
-
-Ruta:
-
-```text
-GitHub > Repositorio > Settings > Secrets and variables > Actions > New repository secret
-```
-
----
-
-### 6.1 Secrets de Docker Hub
-
-| Secret             | Descripción                          |
-| ------------------ | ------------------------------------ |
-| DOCKERHUB_USERNAME | Usuario de Docker Hub                |
-| DOCKERHUB_TOKEN    | Token para publicar la imagen Docker |
-
----
-
-### 6.2 Secrets de EC2
-
-| Secret      | Descripción                                         |
-| ----------- | --------------------------------------------------- |
-| EC2_HOST    | Elastic IP o IP pública de la instancia EC2         |
-| EC2_USER    | Usuario SSH de la instancia. Normalmente `ec2-user` |
-| EC2_SSH_KEY | Llave privada `.pem` usada para conexión SSH        |
-
-Ejemplo:
-
-```text
-EC2_USER=ec2-user
-EC2_HOST=54.156.56.18
-```
-
-El secret `EC2_SSH_KEY` debe contener el contenido completo de la llave privada:
-
-```text
------BEGIN OPENSSH PRIVATE KEY-----
-...
------END OPENSSH PRIVATE KEY-----
-```
-
-> No subir el archivo `.pem` al repositorio.
-
----
-
-### 6.3 Secrets de AWS Academy
-
-| Secret                | Descripción                          |
-| --------------------- | ------------------------------------ |
-| AWS_ACCESS_KEY_ID     | Access Key temporal de AWS Academy   |
-| AWS_SECRET_ACCESS_KEY | Secret Key temporal de AWS Academy   |
-| AWS_SESSION_TOKEN     | Token temporal de sesión AWS Academy |
-| AWS_REGION            | Región AWS utilizada                 |
-| S3_BUCKET_NAME        | Nombre del bucket S3                 |
-
-Ejemplo:
-
-```text
-AWS_REGION=us-east-1
-S3_BUCKET_NAME=gestion-guias-s3
-```
-
-> Importante: Las credenciales de AWS Academy son temporales. Si el laboratorio se detiene o reinicia, se deben actualizar los secrets `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` y `AWS_SESSION_TOKEN`.
-
----
-
-## 7. Amazon EC2
-
-La aplicación se ejecuta en una instancia EC2 con Docker.
-
-Configuración recomendada:
-
-```text
-AMI: Amazon Linux 2023
-Instance type: t2.micro o t3.micro
-Usuario SSH: ec2-user
-Puerto SSH: 22
-Puerto aplicación: 8080
-```
-
-Security Group recomendado:
-
-| Tipo       | Puerto | Origen    |
-| ---------- | -----: | --------- |
-| SSH        |     22 | 0.0.0.0/0 |
-| Custom TCP |   8080 | 0.0.0.0/0 |
-
-> Aunque el backend se ejecuta en EC2, las pruebas funcionales de la actividad deben realizarse mediante API Gateway.
-
----
-
-## 8. Amazon S3
-
-Se configuró un bucket S3 para almacenar las guías generadas.
-
-Bucket utilizado:
-
-```text
-gestion-guias-s3
-```
-
-El backend genera la guía y la sube a S3 mediante el endpoint:
+El backend construye un mensaje `GuiaDespachoMessage` y lo envia a RabbitMQ.
 
 ```http
-POST /api/guias/{id}/subir-s3
+POST /api/guias/{id}/enviar-cola
 ```
 
-Endpoint de descarga:
-
-```http
-GET /api/guias/{id}/descargar
-```
-
----
-
-## 9. AWS API Gateway
-
-Se configuró AWS API Gateway como punto público de entrada para todos los endpoints del backend.
-
-URL base:
+La guia queda almacenada en:
 
 ```text
-https://u42wjueljf.execute-api.us-east-1.amazonaws.com/s6
+guias.pendientes.queue
 ```
 
-Rutas registradas:
+### 3. Procesar mensaje pendiente
 
-| Método | Ruta                      | Descripción                      |
-| ------ | ------------------------- | -------------------------------- |
-| GET    | /api/guias                | Listar guías                     |
-| POST   | /api/guias                | Crear guía                       |
-| GET    | /api/guias/{id}           | Consultar guía por ID            |
-| PUT    | /api/guias/{id}           | Actualizar guía                  |
-| DELETE | /api/guias/{id}           | Eliminar guía                    |
-| GET    | /api/guias/buscar         | Buscar por transportista y fecha |
-| POST   | /api/guias/{id}/subir-s3  | Subir guía generada a S3         |
-| GET    | /api/guias/{id}/descargar | Descargar guía                   |
-
-Todas las rutas se encuentran protegidas con JWT Auth.
-
----
-
-## 10. Endpoints principales
-
-Todas las URLs deben usar la base:
-
-```text
-{{baseUrl}} = https://u42wjueljf.execute-api.us-east-1.amazonaws.com/s6
-```
-
----
-
-### 10.1 Crear guía
+El backend consume manualmente un mensaje desde la cola principal y lo guarda en Oracle Cloud.
 
 ```http
-POST {{baseUrl}}/api/guias
+POST /api/guias/colas/procesar
+```
+
+El registro queda almacenado en la tabla:
+
+```text
+GUIAS_COLA_PROCESADAS
+```
+
+### 4. Enviar guia a cola de errores
+
+Endpoint agregado para evidenciar el uso de la segunda cola RabbitMQ.
+
+```http
+POST /api/guias/{id}/enviar-cola-error
+```
+
+La guia queda almacenada en:
+
+```text
+guias.errores.queue
+```
+
+## Endpoints S8
+
+URL base de API Gateway:
+
+```text
+https://u42wjueljf.execute-api.us-east-1.amazonaws.com/s8
+```
+
+| Metodo |              Endpoint               |                          Descripcion                          |
+|--------|-------------------------------------|---------------------------------------------------------------|
+|  POST  | `/api/guias`                        | Crea una guia de despacho                                     |
+|  POST  | `/api/guias/{id}/enviar-cola`       | Envia una guia a la cola principal de RabbitMQ                |
+|  POST  | `/api/guias/colas/procesar`         | Consume un mensaje desde RabbitMQ y lo guarda en Oracle Cloud |
+|  POST  | `/api/guias/{id}/enviar-cola-error` | Envia una guia a la cola de errores de RabbitMQ               |
+
+## Ejemplos de uso en Postman
+
+### Crear guia
+
+```http
+POST https://u42wjueljf.execute-api.us-east-1.amazonaws.com/s8/api/guias
+Authorization: Bearer <TOKEN_ADMIN>
+Content-Type: application/json
 ```
 
 Body:
 
 ```json
 {
-  "transportista": "Transportes EFS",
-  "fecha": "2026-06-03",
-  "cliente": "Cliente Demo S6",
-  "direccionDestino": "Av. Siempre Viva 742",
-  "descripcionPedido": "Pedido de prueba para validacion final S6"
+  "transportista": "Transportes RabbitMQ",
+  "fecha": "2026-07-07",
+  "cliente": "Cliente Cola S8",
+  "direccionDestino": "Av. RabbitMQ 123",
+  "descripcionPedido": "Guia creada para prueba de envio a cola RabbitMQ"
 }
 ```
 
-Rol requerido:
-
-```text
-admin
-```
-
----
-
-### 10.2 Listar guías
+### Enviar guia a cola principal
 
 ```http
-GET {{baseUrl}}/api/guias
+POST https://u42wjueljf.execute-api.us-east-1.amazonaws.com/s8/api/guias/4/enviar-cola
+Authorization: Bearer <TOKEN_ADMIN>
 ```
 
-Rol requerido:
+Respuesta esperada:
 
 ```text
-admin
+Guia enviada correctamente a la cola principal de RabbitMQ
 ```
 
----
-
-### 10.3 Consultar guía por ID
+### Procesar mensaje desde cola principal
 
 ```http
-GET {{baseUrl}}/api/guias/{id}
+POST https://u42wjueljf.execute-api.us-east-1.amazonaws.com/s8/api/guias/colas/procesar
+Authorization: Bearer <TOKEN_ADMIN>
 ```
 
-Rol requerido:
-
-```text
-admin
-```
-
----
-
-### 10.4 Buscar por transportista y fecha
-
-```http
-GET {{baseUrl}}/api/guias/buscar?transportista=Transportes%20EFS&fecha=2026-06-03
-```
-
-Rol requerido:
-
-```text
-admin
-```
-
----
-
-### 10.5 Actualizar guía
-
-```http
-PUT {{baseUrl}}/api/guias/{id}
-```
-
-Body:
+Respuesta esperada:
 
 ```json
 {
-  "cliente": "Cliente Demo S6 Actualizado",
-  "direccionDestino": "Av. Nueva 123",
-  "descripcionPedido": "Pedido actualizado para evidencia S6",
-  "estado": "ACTUALIZADA"
+  "id": null,
+  "guiaId": 4,
+  "transportista": "Transportes RabbitMQ",
+  "fechaGuia": "2026-07-07",
+  "cliente": "Cliente Cola S8",
+  "direccionDestino": "Av. RabbitMQ 123",
+  "descripcionPedido": "Guia creada para prueba de envio a cola RabbitMQ",
+  "estado": "GENERADA",
+  "origen": "API_ENVIAR_COLA",
+  "fechaEvento": "2026-07-07T23:35:36.769133298",
+  "fechaProcesamiento": "2026-07-07T23:42:09.774990413"
 }
 ```
 
-Rol requerido:
-
-```text
-admin
-```
-
----
-
-### 10.6 Subir guía generada a S3
+### Enviar guia a cola de errores
 
 ```http
-POST {{baseUrl}}/api/guias/{id}/subir-s3
+POST https://u42wjueljf.execute-api.us-east-1.amazonaws.com/s8/api/guias/4/enviar-cola-error
+Authorization: Bearer <TOKEN_ADMIN>
 ```
 
-Rol requerido:
+Respuesta esperada:
 
 ```text
-admin
+Guia enviada correctamente a la cola de errores de RabbitMQ
 ```
 
----
+## Tabla Oracle Cloud
 
-### 10.7 Descargar guía
+La informacion consumida desde RabbitMQ se guarda en Oracle Cloud Autonomous Database en la tabla:
+
+```text
+GUIAS_COLA_PROCESADAS
+```
+
+Script utilizado:
+
+```sql
+CREATE TABLE GUIAS_COLA_PROCESADAS (
+    ID NUMBER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    GUIA_ID NUMBER,
+    TRANSPORTISTA VARCHAR2(150),
+    FECHA_GUIA DATE,
+    CLIENTE VARCHAR2(150),
+    DIRECCION_DESTINO VARCHAR2(255),
+    DESCRIPCION_PEDIDO VARCHAR2(1000),
+    ESTADO VARCHAR2(50),
+    ORIGEN VARCHAR2(150),
+    FECHA_EVENTO TIMESTAMP,
+    FECHA_PROCESAMIENTO TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+Consulta de validacion:
+
+```sql
+SELECT *
+FROM GUIAS_COLA_PROCESADAS
+ORDER BY ID DESC;
+```
+
+## Ejecucion local
+
+### 1. Levantar RabbitMQ con Docker Compose
+
+```bash
+docker compose up -d
+```
+
+RabbitMQ Management:
+
+```text
+http://localhost:15672
+```
+
+### 2. Variables de entorno Oracle
+
+En PowerShell:
+
+```powershell
+$env:ORACLE_WALLET_PATH="src/main/resources/wallet"
+$env:ORACLE_TNS_NAME="guiass8db_high"
+$env:ORACLE_DB_USERNAME="ADMIN"
+$env:ORACLE_DB_PASSWORD="TU_PASSWORD_REAL"
+```
+
+### 3. Ejecutar Spring Boot
+
+```bash
+mvn spring-boot:run
+```
+
+### 4. Health check local
 
 ```http
-GET {{baseUrl}}/api/guias/{id}/descargar
+GET http://localhost:8080/actuator/health
 ```
 
-Roles permitidos:
+Respuesta esperada:
+
+```json
+{
+  "status": "UP"
+}
+```
+
+## Despliegue en EC2
+
+El despliegue se realiza mediante GitHub Actions.
+
+El workflow realiza:
+
+1. Build de la imagen Docker.
+2. Push de la imagen a Docker Hub.
+3. Conexion SSH a EC2.
+4. Instalacion o validacion de Docker.
+5. Montaje de EFS.
+6. Creacion de red Docker `guias-net`.
+7. Levantamiento de RabbitMQ.
+8. Levantamiento de la aplicacion Spring Boot.
+9. Montaje del wallet Oracle en el contenedor.
+10. Impresion de evidencias del despliegue.
+
+Contenedores esperados en EC2:
+
+```text
+gestion-guias-app
+rabbitmq-guias
+```
+
+Red Docker:
+
+```text
+guias-net
+```
+
+## Variables de entorno utilizadas en EC2
+
+```text
+AWS_ACCESS_KEY_ID
+AWS_SECRET_ACCESS_KEY
+AWS_SESSION_TOKEN
+AWS_REGION
+S3_BUCKET_NAME
+RABBITMQ_HOST
+RABBITMQ_PORT
+RABBITMQ_USERNAME
+RABBITMQ_PASSWORD
+ORACLE_WALLET_PATH
+ORACLE_TNS_NAME
+ORACLE_DB_USERNAME
+ORACLE_DB_PASSWORD
+```
+
+El wallet Oracle no se sube al repositorio. Se monta manualmente en EC2 desde:
+
+```text
+/home/ec2-user/oracle/wallet
+```
+
+hacia el contenedor en:
+
+```text
+/app/wallet
+```
+
+## Seguridad
+
+El backend mantiene seguridad mediante Spring Security y valida tokens JWT emitidos por Azure AD B2C.
+
+Los endpoints generales requieren rol:
 
 ```text
 admin
-descarga
 ```
 
----
-
-### 10.8 Eliminar guía
+El token debe enviarse como Bearer Token:
 
 ```http
-DELETE {{baseUrl}}/api/guias/{id}
+Authorization: Bearer <TOKEN>
 ```
 
-Rol requerido:
+## Archivos principales agregados o modificados en S8
 
 ```text
-admin
+docker-compose.yml
+.github/workflows/main.yml
+src/main/resources/application.properties
+src/main/java/com/duoc/gestionguias/config/RabbitMQConfig.java
+src/main/java/com/duoc/gestionguias/config/OracleJdbcConfig.java
+src/main/java/com/duoc/gestionguias/dto/mensaje/GuiaDespachoMessage.java
+src/main/java/com/duoc/gestionguias/model/GuiaColaProcesada.java
+src/main/java/com/duoc/gestionguias/repository/GuiaColaProcesadaRepository.java
+src/main/java/com/duoc/gestionguias/repository/oracle/GuiaColaProcesadaOracleRepository.java
+src/main/java/com/duoc/gestionguias/service/messaging/GuiaQueueProducer.java
+src/main/java/com/duoc/gestionguias/service/messaging/GuiaQueueService.java
+src/main/java/com/duoc/gestionguias/service/messaging/GuiaQueueConsumerService.java
+src/main/java/com/duoc/gestionguias/controller/GuiaController.java
+pom.xml
 ```
 
----
+## Evidencias esperadas
 
-## 11. Pruebas recomendadas en Postman
+Para la entrega S8 se consideran las siguientes evidencias:
 
-La colección de Postman se organiza de la siguiente forma:
+1. GitHub Actions ejecutado correctamente.
+2. Contenedores `gestion-guias-app` y `rabbitmq-guias` activos en EC2.
+3. Red Docker `guias-net` con ambos contenedores conectados.
+4. RabbitMQ Management mostrando `guias.pendientes.queue`.
+5. RabbitMQ Management mostrando `guias.errores.queue`.
+6. Exchange `guias.exchange` creado.
+7. Postman creando una guia mediante API Gateway.
+8. Postman enviando guia a la cola principal.
+9. RabbitMQ mostrando mensaje en cola principal.
+10. Postman procesando mensaje desde la cola.
+11. Oracle Cloud mostrando registro en `GUIAS_COLA_PROCESADAS`.
+12. Postman enviando guia a la cola de errores.
+13. RabbitMQ mostrando mensaje en cola de errores.
+14. API Gateway stage `s8` con rutas nuevas.
+15. Azure AD B2C emitiendo JWT valido para rol admin.
 
-```text
-01 - OAuth2 e IDaaS Azure B2C
-02 - Validación de seguridad API Gateway
-03 - Endpoints con rol ADMIN
-04 - Endpoints con rol DESCARGA
-```
+## Conclusion
 
----
+En la Semana 8 se incorporo mensajeria asincrona al sistema de gestion de guias mediante RabbitMQ. La solucion implementa un flujo productor-consumidor, una cola principal para guias pendientes, una cola de errores para manejo de fallos y persistencia de mensajes procesados en Oracle Cloud Autonomous Database.
 
-### 11.1 OAuth2 e IDaaS Azure B2C
-
-| Prueba                                                             | Descripción                                                | Resultado esperado |
-| ------------------------------------------------------------------ | ---------------------------------------------------------- | ------------------ |
-| 01.01 - OAuth2 Client Credentials - Obtener JWT con Secret y Scope | Obtención de token usando Client ID, Client Secret y Scope | Token generado     |
-| 01.02 - Bearer Token Usuario ADMIN - Acceso permitido              | Token con `extension_guiaRole=admin`                       | 200 OK             |
-| 01.03 - Bearer Token Usuario DESCARGA - Acceso restringido         | Token con `extension_guiaRole=descarga`                    | 403 Forbidden      |
-
----
-
-### 11.2 Validación de seguridad API Gateway
-
-| Prueba                                  | Resultado esperado |
-| --------------------------------------- | ------------------ |
-| Sin JWT                                 | 401 Unauthorized   |
-| JWT inválido                            | 401 Unauthorized   |
-| JWT válido admin                        | 200 OK             |
-| JWT válido descarga en endpoint general | 403 Forbidden      |
-
----
-
-### 11.3 Endpoints con rol ADMIN
-
-| Prueba                           | Método | Endpoint                  | Resultado esperado      |
-| -------------------------------- | ------ | ------------------------- | ----------------------- |
-| Crear guía                       | POST   | /api/guias                | 200 OK / 201 Created    |
-| Listar guías                     | GET    | /api/guias                | 200 OK                  |
-| Consultar por ID                 | GET    | /api/guias/{id}           | 200 OK                  |
-| Buscar por transportista y fecha | GET    | /api/guias/buscar         | 200 OK                  |
-| Actualizar guía                  | PUT    | /api/guias/{id}           | 200 OK                  |
-| Subir guía a S3                  | POST   | /api/guias/{id}/subir-s3  | 200 OK                  |
-| Descargar guía                   | GET    | /api/guias/{id}/descargar | 200 OK                  |
-| Eliminar guía                    | DELETE | /api/guias/{id}           | 200 OK / 204 No Content |
-
----
-
-### 11.4 Endpoints con rol DESCARGA
-
-| Prueba                   | Método | Endpoint                  | Resultado esperado |
-| ------------------------ | ------ | ------------------------- | ------------------ |
-| Intentar listar guías    | GET    | /api/guias                | 403 Forbidden      |
-| Intentar crear guía      | POST   | /api/guias                | 403 Forbidden      |
-| Intentar actualizar guía | PUT    | /api/guias/{id}           | 403 Forbidden      |
-| Intentar eliminar guía   | DELETE | /api/guias/{id}           | 403 Forbidden      |
-| Descargar guía permitida | GET    | /api/guias/{id}/descargar | 200 OK             |
-
----
-
-## 12. GitHub Actions
-
-El proyecto utiliza GitHub Actions para automatizar el build y despliegue.
-
-Flujo general:
-
-```text
-1. Checkout del repositorio
-2. Login en Docker Hub
-3. Build de imagen Docker
-4. Push de imagen a Docker Hub
-5. Conexión SSH a EC2
-6. Detención de contenedor anterior
-7. Descarga de la nueva imagen
-8. Ejecución del contenedor actualizado
-```
-
-Evidencias esperadas:
-
-```text
-Workflow ejecutado correctamente
-Imagen Docker publicada
-Contenedor activo en EC2
-Aplicación disponible mediante API Gateway
-```
-
----
-
-## 13. Evidencias recomendadas
-
-### Azure AD B2C
-
-```text
-Tenant B2C
-App Registration guias-despacho-s6
-Application Client ID
-Authentication con https://jwt.ms
-User Flow B2C_1_guias_signin
-Claim personalizado guiaRole
-Usuarios con roles admin y descarga
-Expose an API con scope guias_api
-Client Secret creado
-```
-
-### AWS
-
-```text
-EC2 ejecutando el backend
-S3 bucket gestion-guias-s3
-API Gateway con URL pública
-Routes creadas
-Integrations configuradas
-JWT Authorizer configurado
-Rutas protegidas con JWT Auth
-```
-
-### Postman
-
-```text
-OAuth2 Client Credentials con Client Secret y Scope
-Token generado mediante Get New Access Token
-Llamada sin token con 401
-Llamada con token inválido con 401
-Llamada admin con 200
-Llamada descarga en endpoint general con 403
-Creación de guía
-Subida de guía a S3
-Descarga de guía
-Validación de permisos por rol
-```
-
----
-
-## 14. Consideraciones importantes
-
-* Las credenciales de AWS Academy son temporales y deben actualizarse si el laboratorio se reinicia.
-* No se debe subir el archivo `.pem` al repositorio.
-* No se debe exponer el valor del Client Secret.
-* Las pruebas funcionales deben realizarse usando API Gateway.
-* El usuario `admin` tiene acceso completo a la gestión de guías.
-* El usuario `descarga` solo tiene permiso para descargar guías.
-* Si una solicitud no tiene token, API Gateway responde `401 Unauthorized`.
-* Si el token es válido, pero el rol no tiene permiso, Spring Security responde `403 Forbidden`.
-
----
-
-## 15. Repositorio
-
-Repositorio del proyecto:
-
-```text
-https://github.com/PedroBreit/DUOC-DCN-S1.git
-```
-
----
-
-## 16. Conclusión
-
-La solución implementa una arquitectura Cloud Native completa, integrando backend Spring Boot, contenedores Docker, despliegue automatizado con GitHub Actions, ejecución en Amazon EC2, almacenamiento en Amazon S3, exposición mediante AWS API Gateway y seguridad mediante Azure AD B2C.
-
-Además, se incorporó autorización por roles con Spring Security, permitiendo diferenciar las funcionalidades disponibles para usuarios administradores y usuarios con permiso exclusivo de descarga.
+Ademas, el sistema fue desplegado en EC2 usando Docker y GitHub Actions, exponiendo los endpoints mediante AWS API Gateway y manteniendo la validacion de seguridad con Azure AD B2C y Spring Security.
