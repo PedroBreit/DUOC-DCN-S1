@@ -37,10 +37,29 @@ public class GuiaController {
         this.guiaQueueConsumerService = guiaQueueConsumerService;
     }
 
-    // Crea una guia y genera su archivo temporal.
+    /*
+     * Nuevo flujo principal S8:
+     * La solicitud de creacion de guia se envia primero a RabbitMQ.
+     * La guia sera creada, generada y subida a S3 por el consumidor.
+     */
     @PostMapping
-    public ResponseEntity<GuiaDespacho> crearGuia(@Valid @RequestBody CrearGuiaRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(guiaService.crearGuia(request));
+    public ResponseEntity<String> crearGuia(@Valid @RequestBody CrearGuiaRequest request) {
+        guiaQueueService.enviarSolicitudCreacionGuia(request);
+        return ResponseEntity
+                .status(HttpStatus.ACCEPTED)
+                .body("Solicitud de creacion de guia enviada correctamente a RabbitMQ");
+    }
+
+    /*
+     * Envia una solicitud de creacion con error forzado.
+     * Se utiliza para demostrar que el consumidor deriva el mensaje a la DLQ.
+     */
+    @PostMapping("/simular-error")
+    public ResponseEntity<String> crearGuiaConError(@Valid @RequestBody CrearGuiaRequest request) {
+        guiaQueueService.enviarSolicitudCreacionGuiaConError(request);
+        return ResponseEntity
+                .status(HttpStatus.ACCEPTED)
+                .body("Solicitud de creacion con error enviada correctamente a RabbitMQ");
     }
 
     // Lista todas las guias registradas.
@@ -102,28 +121,9 @@ public class GuiaController {
     }
 
     /*
-     * Envia una guia existente a la cola principal de RabbitMQ.
-     * Este endpoint permite evidenciar el comportamiento asincrono solicitado en S8.
-     */
-    @PostMapping("/{id}/enviar-cola")
-    public ResponseEntity<String> enviarGuiaACola(@PathVariable Long id) {
-        guiaQueueService.enviarGuiaACola(id);
-        return ResponseEntity.ok("Guia enviada correctamente a la cola principal de RabbitMQ");
-    }
-
-    /*
-    * Envia una guia existente a la cola de errores de RabbitMQ.
-    * Este endpoint se usa para evidenciar el manejo de errores solicitado en S8.
-    */
-    @PostMapping("/{id}/enviar-cola-error")
-    public ResponseEntity<String> enviarGuiaAColaError(@PathVariable Long id) {
-        guiaQueueService.enviarGuiaAColaError(id);
-        return ResponseEntity.ok("Guia enviada correctamente a la cola de errores de RabbitMQ");
-    }
-    
-    /*
-     * Consume un mensaje desde la cola principal de RabbitMQ
-     * y lo guarda en la tabla GUIAS_COLA_PROCESADAS.
+     * Consume un mensaje desde la cola principal de RabbitMQ.
+     * En el flujo corregido, el consumidor debe crear la guia, generar archivo,
+     * subirlo a S3 y guardar el resultado en Oracle Cloud.
      */
     @PostMapping("/colas/procesar")
     public ResponseEntity<GuiaColaProcesada> procesarMensajeCola() {

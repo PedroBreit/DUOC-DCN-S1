@@ -4,59 +4,59 @@ import java.time.LocalDateTime;
 
 import org.springframework.stereotype.Service;
 
+import com.duoc.gestionguias.dto.CrearGuiaRequest;
 import com.duoc.gestionguias.dto.mensaje.GuiaDespachoMessage;
-import com.duoc.gestionguias.model.GuiaDespacho;
-import com.duoc.gestionguias.repository.GuiaRepository;
 
 @Service
 public class GuiaQueueService {
 
-    private final GuiaRepository guiaRepository;
     private final GuiaQueueProducer guiaQueueProducer;
 
-    public GuiaQueueService(
-            GuiaRepository guiaRepository,
-            GuiaQueueProducer guiaQueueProducer
-    ) {
-        this.guiaRepository = guiaRepository;
+    public GuiaQueueService(GuiaQueueProducer guiaQueueProducer) {
         this.guiaQueueProducer = guiaQueueProducer;
     }
 
     /*
-     * Envia una guia existente a la cola principal de RabbitMQ.
+     * Flujo principal S8:
+     * Recibe la solicitud de creacion de guia y la envia a RabbitMQ.
+     * La guia real sera creada despues por el consumidor.
      */
-    public void enviarGuiaACola(Long id) {
-        GuiaDespacho guia = buscarGuia(id);
-        GuiaDespachoMessage mensaje = crearMensajeDesdeGuia(guia, "API_ENVIAR_COLA");
+    public void enviarSolicitudCreacionGuia(CrearGuiaRequest request) {
+        GuiaDespachoMessage mensaje = new GuiaDespachoMessage(
+                null,
+                request.getTransportista(),
+                request.getFecha(),
+                request.getCliente(),
+                request.getDireccionDestino(),
+                request.getDescripcionPedido(),
+                "SOLICITADA",
+                LocalDateTime.now(),
+                "API_CREAR_GUIA",
+                false
+        );
+
         guiaQueueProducer.enviarGuiaPendiente(mensaje);
     }
 
     /*
-     * Envia una guia existente directamente a la cola de errores.
-     * Este metodo permite evidenciar la segunda cola solicitada en S8.
+     * Flujo de error controlado S8:
+     * Envia una solicitud marcada para fallar durante el consumo.
+     * Esto permite demostrar que el mensaje termina en la DLQ.
      */
-    public void enviarGuiaAColaError(Long id) {
-        GuiaDespacho guia = buscarGuia(id);
-        GuiaDespachoMessage mensaje = crearMensajeDesdeGuia(guia, "API_SIMULAR_ERROR");
-        guiaQueueProducer.enviarGuiaConError(mensaje, "Error simulado para evidencia de cola de errores");
-    }
-
-    private GuiaDespacho buscarGuia(Long id) {
-        return guiaRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("No existe la guia con ID: " + id));
-    }
-
-    private GuiaDespachoMessage crearMensajeDesdeGuia(GuiaDespacho guia, String origen) {
-        return new GuiaDespachoMessage(
-                guia.getId(),
-                guia.getTransportista(),
-                guia.getFecha(),
-                guia.getCliente(),
-                guia.getDireccionDestino(),
-                guia.getDescripcionPedido(),
-                guia.getEstado(),
+    public void enviarSolicitudCreacionGuiaConError(CrearGuiaRequest request) {
+        GuiaDespachoMessage mensaje = new GuiaDespachoMessage(
+                null,
+                request.getTransportista(),
+                request.getFecha(),
+                request.getCliente(),
+                request.getDireccionDestino(),
+                request.getDescripcionPedido(),
+                "SOLICITADA_ERROR",
                 LocalDateTime.now(),
-                origen
+                "API_CREAR_GUIA_ERROR",
+                true
         );
+
+        guiaQueueProducer.enviarGuiaPendiente(mensaje);
     }
 }

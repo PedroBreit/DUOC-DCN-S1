@@ -15,6 +15,7 @@ public class GuiaDespachoMessage implements Serializable {
     private String estado;
     private LocalDateTime fechaEvento;
     private String origen;
+    private Boolean forzarError;
 
     public GuiaDespachoMessage() {
     }
@@ -28,7 +29,8 @@ public class GuiaDespachoMessage implements Serializable {
             String descripcionPedido,
             String estado,
             LocalDateTime fechaEvento,
-            String origen
+            String origen,
+            Boolean forzarError
     ) {
         this.guiaId = guiaId;
         this.transportista = transportista;
@@ -39,6 +41,7 @@ public class GuiaDespachoMessage implements Serializable {
         this.estado = estado;
         this.fechaEvento = fechaEvento;
         this.origen = origen;
+        this.forzarError = forzarError;
     }
 
     public Long getGuiaId() {
@@ -111,5 +114,13 @@ public class GuiaDespachoMessage implements Serializable {
 
     public void setOrigen(String origen) {
         this.origen = origen;
+    }
+
+    public Boolean getForzarError() {
+        return forzarError;
+    }
+
+    public void setForzarError(Boolean forzarError) {
+        this.forzarError = forzarError;
     }
 }

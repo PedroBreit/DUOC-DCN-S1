@@ -6,14 +6,19 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import com.duoc.gestionguias.dto.CrearGuiaRequest;
 import com.duoc.gestionguias.dto.mensaje.GuiaDespachoMessage;
 import com.duoc.gestionguias.model.GuiaColaProcesada;
+import com.duoc.gestionguias.model.GuiaDespacho;
 import com.duoc.gestionguias.repository.oracle.GuiaColaProcesadaOracleRepository;
+import com.duoc.gestionguias.service.GuiaService;
+import com.duoc.gestionguias.exception.ColaVaciaException;
 
 @Service
 public class GuiaQueueConsumerService {
 
     private final RabbitTemplate rabbitTemplate;
+    private final GuiaService guiaService;
     private final GuiaColaProcesadaOracleRepository guiaColaProcesadaOracleRepository;
     private final GuiaQueueProducer guiaQueueProducer;
 
@@ -22,49 +27,88 @@ public class GuiaQueueConsumerService {
 
     public GuiaQueueConsumerService(
             RabbitTemplate rabbitTemplate,
+            GuiaService guiaService,
             GuiaColaProcesadaOracleRepository guiaColaProcesadaOracleRepository,
             GuiaQueueProducer guiaQueueProducer
     ) {
         this.rabbitTemplate = rabbitTemplate;
+        this.guiaService = guiaService;
         this.guiaColaProcesadaOracleRepository = guiaColaProcesadaOracleRepository;
         this.guiaQueueProducer = guiaQueueProducer;
     }
 
     /*
-     * Consume un mensaje desde la cola principal y lo guarda
-     * en Oracle Cloud en la tabla GUIAS_COLA_PROCESADAS.
+     * Flujo corregido S8:
+     * Consume una solicitud desde RabbitMQ, crea la guia real,
+     * genera el archivo, lo sube a S3 y registra el procesamiento en Oracle Cloud.
      */
     public GuiaColaProcesada procesarUnMensajePendiente() {
         Object mensajeRecibido = rabbitTemplate.receiveAndConvert(pendientesQueueName);
 
         if (mensajeRecibido == null) {
-            throw new RuntimeException("No existen mensajes pendientes en la cola principal");
+            throw new ColaVaciaException("No existen mensajes pendientes en la cola principal");
         }
 
+        GuiaDespachoMessage mensaje = null;
+
         try {
-            GuiaDespachoMessage mensaje = (GuiaDespachoMessage) mensajeRecibido;
-            GuiaColaProcesada registro = convertirARegistroProcesado(mensaje);
+            mensaje = (GuiaDespachoMessage) mensajeRecibido;
+
+            if (Boolean.TRUE.equals(mensaje.getForzarError())) {
+                throw new RuntimeException("Error forzado para demostrar envio a la DLQ");
+            }
+
+            CrearGuiaRequest request = convertirMensajeACrearGuiaRequest(mensaje);
+
+            /*
+             * 1. Crea la guia en la base de datos local.
+             * 2. Genera el archivo de guia.
+             */
+            GuiaDespacho guiaCreada = guiaService.crearGuia(request);
+
+            /*
+             * 3. Sube el archivo generado a S3.
+             */
+            GuiaDespacho guiaSubidaAS3 = guiaService.subirGuiaAS3(guiaCreada.getId());
+
+            /*
+             * 4. Guarda evidencia del procesamiento en Oracle Cloud.
+             */
+            GuiaColaProcesada registro = convertirARegistroProcesado(guiaSubidaAS3, mensaje);
 
             return guiaColaProcesadaOracleRepository.save(registro);
 
         } catch (Exception ex) {
-            if (mensajeRecibido instanceof GuiaDespachoMessage mensajeConError) {
-                guiaQueueProducer.enviarGuiaConError(mensajeConError, ex.getMessage());
+            if (mensaje != null) {
+                guiaQueueProducer.enviarGuiaConError(mensaje, ex.getMessage());
             }
 
             throw new RuntimeException("Error al procesar mensaje de RabbitMQ: " + ex.getMessage(), ex);
         }
     }
 
-    private GuiaColaProcesada convertirARegistroProcesado(GuiaDespachoMessage mensaje) {
+    private CrearGuiaRequest convertirMensajeACrearGuiaRequest(GuiaDespachoMessage mensaje) {
+        CrearGuiaRequest request = new CrearGuiaRequest();
+        request.setTransportista(mensaje.getTransportista());
+        request.setFecha(mensaje.getFecha());
+        request.setCliente(mensaje.getCliente());
+        request.setDireccionDestino(mensaje.getDireccionDestino());
+        request.setDescripcionPedido(mensaje.getDescripcionPedido());
+        return request;
+    }
+
+    private GuiaColaProcesada convertirARegistroProcesado(
+            GuiaDespacho guia,
+            GuiaDespachoMessage mensaje
+    ) {
         GuiaColaProcesada registro = new GuiaColaProcesada();
-        registro.setGuiaId(mensaje.getGuiaId());
-        registro.setTransportista(mensaje.getTransportista());
-        registro.setFechaGuia(mensaje.getFecha());
-        registro.setCliente(mensaje.getCliente());
-        registro.setDireccionDestino(mensaje.getDireccionDestino());
-        registro.setDescripcionPedido(mensaje.getDescripcionPedido());
-        registro.setEstado(mensaje.getEstado());
+        registro.setGuiaId(guia.getId());
+        registro.setTransportista(guia.getTransportista());
+        registro.setFechaGuia(guia.getFecha());
+        registro.setCliente(guia.getCliente());
+        registro.setDireccionDestino(guia.getDireccionDestino());
+        registro.setDescripcionPedido(guia.getDescripcionPedido());
+        registro.setEstado(guia.getEstado());
         registro.setOrigen(mensaje.getOrigen());
         registro.setFechaEvento(mensaje.getFechaEvento());
         registro.setFechaProcesamiento(LocalDateTime.now());
