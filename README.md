@@ -1,4 +1,4 @@
-# Sistema de Gestion de Guias - Semana 8 
+# Sistema de Gestion de Guias - Semana 8
 
 Proyecto desarrollado para la asignatura **Desarrollo Cloud Native (CDY2204)**.
 
